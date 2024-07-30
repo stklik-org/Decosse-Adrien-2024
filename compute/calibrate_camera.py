@@ -43,6 +43,7 @@ def get_intersect(
 def calibrate_camera_new(img, index=0, log=False):
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    ## first thing: find the markers on the image
     templates = [
         '/home/adrien/Bureau/Ned/compute/data/templates/circle.jpg',
         '/home/adrien/Bureau/Ned/compute/data/templates/circle2.jpg',
@@ -64,12 +65,12 @@ def calibrate_camera_new(img, index=0, log=False):
         return not (x1_br < x2_tl or x2_br < x1_tl or y1_br < y2_tl or y2_br < y1_tl)
 
     all_results = []
-    for template_path in tqdm(templates):
+    for template_path in tqdm(templates): # trying to fit the template on the image for automatic detection of the marker
         template = cv2.imread(template_path, cv2.IMREAD_COLOR)
         template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
         h, w = template.shape[:2]
 
-        for scale in np.linspace(0.5, 1.5, 40)[::-1]:
+        for scale in np.linspace(0.5, 1.5, 40)[::-1]: # trying different size (camera may be close or far)
             resized_img = cv2.resize(img_gray, (int(img.shape[1] * scale), int(img.shape[0] * scale)))
             if resized_img.shape[0] < h or resized_img.shape[1] < w:
                 break
@@ -80,7 +81,7 @@ def calibrate_camera_new(img, index=0, log=False):
     all_results = sorted(all_results, key=lambda x: x[0], reverse=True)
 
     best_results = []
-    for max_val, max_loc, scale, template_path in all_results:
+    for max_val, max_loc, scale, template_path in all_results: # keep the best fitting. More likely to be the searched data
         top_left = (int(max_loc[0] / scale), int(max_loc[1] / scale))
         bottom_right = (int((max_loc[0] + w) / scale), int((max_loc[1] + h) / scale))
         if not any(is_overlapping((*tl, *br), (*top_left, *bottom_right)) for _, (tl, br) in best_results):
@@ -90,7 +91,7 @@ def calibrate_camera_new(img, index=0, log=False):
 
     L_target = []
 
-    for (max_val, max_loc, scale, template_path), (top_left, bottom_right) in best_results:
+    for (max_val, max_loc, scale, template_path), (top_left, bottom_right) in best_results: # draw results on the image
         template = cv2.imread(template_path, cv2.IMREAD_COLOR)
         template = cv2.resize(template, (bottom_right[0] - top_left[0], bottom_right[1] - top_left[1]))
         L_target.append(((top_left[0]+bottom_right[0])/2, (top_left[1]+bottom_right[1])/2))
@@ -99,33 +100,36 @@ def calibrate_camera_new(img, index=0, log=False):
     L_target[:2] = sorted(L_target[:2], key=lambda x: x[1], reverse=False)
     L_target[2:] = sorted(L_target[2:], key=lambda x: x[1], reverse=False)
 
-    L_target = manual_calibration(img, L_target)
+    L_target = manual_calibration(img, L_target) # ask to the user to verify (and maybe change the result)
     L_target = [(x-1296, 997-y) for x, y in L_target]
 
     L_target = sorted(L_target, key=lambda x: x[1], reverse=True)
     L_target[:2] = sorted(L_target[:2], key=lambda x: x[0], reverse=False)
     L_target[2:] = sorted(L_target[2:], key=lambda x: x[0], reverse=False)
 
+
+    ## second thing: compute the base of the camera in the main base
     A = np.array([L_target[2][0], L_target[2][1]], dtype=np.float128)
     B = np.array([L_target[0][0], L_target[0][1]], dtype=np.float128)
     A_ = np.array([L_target[3][0], L_target[3][1]], dtype=np.float128)
     B_ = np.array([L_target[1][0], L_target[1][1]], dtype=np.float128)
 
-    uA = get_direction_vector(A[0], A[1], 1944/2)[:3]
+    uA = get_direction_vector(A[0], A[1], 1944/2)[:3] # vectors pointing on each markers in the camera base
     uB = get_direction_vector(B[0], B[1], 1944/2)[:3]
     uA_ = get_direction_vector(A_[0], A_[1], 1944/2)[:3]
     uB_ = get_direction_vector(B_[0], B_[1], 1944/2)[:3]
 
-    uA = uA/uA[1]
+    uA = uA/uA[1] # normalised vectors
     uB = uB/uB[1]
     uA_ = uA_/uA_[1]
     uB_ = uB_/uB_[1]
 
-    A = np.array([uA[0], uA[2]], dtype=np.float128)
+    A = np.array([uA[0], uA[2]], dtype=np.float128) # exctracting composant on the x and z axis. The axe of the camera is the y axis (it was making sens at some point)
     B = np.array([uB[0], uB[2]], dtype=np.float128)
     A_ = np.array([uA_[0], uA_[2]], dtype=np.float128)
     B_ = np.array([uB_[0], uB_[2]], dtype=np.float128)
 
+    # computing the offset from the center
     det = (B[1]-A[1])*(B_[0]-A_[0])-(B[0]-A[0])*(B_[1]-A_[1])
     M = np.array([
         [-(B_[1]-A_[1])/det, (B_[0]-A_[0])/det],
@@ -144,10 +148,12 @@ def calibrate_camera_new(img, index=0, log=False):
     else:
         x, y = O[0]/np.sin(np.pi/2*r/1944)*r, O[2]/np.sin(np.pi/2*r/1944)*r
 
+    # first two angle (not corresponding to roll, pitch and yaw, otherwise the computation would be less easier)
     r = np.sqrt(x**2 + y**2)
     alpha = np.pi/2*r/1944
     theta = np.arctan2(y, x)
 
+    # now computing the last angle
     T = np.array([
         [np.cos(alpha)*np.cos(theta), -np.sin(alpha), np.cos(alpha)*np.sin(theta), 0],
         [np.sin(alpha)*np.cos(theta), np.cos(alpha), np.sin(alpha)*np.sin(theta), 0],
@@ -162,9 +168,10 @@ def calibrate_camera_new(img, index=0, log=False):
     uA_ = uA_/uA_[1]
 
     uAA_ = uA_-uA
-    beta = np.arctan2(uAA_[2], uAA_[0])
+    beta = np.arctan2(uAA_[2], uAA_[0]) # the last angle
 
-    T = np.array([
+    ## last thing: computing the position of the camera
+    T = np.array([ # the base of the camera without the three coords
         [np.cos(beta), 0, np.sin(beta), 0],
         [0, 1, 0, 0],
         [-np.sin(beta), 0, np.cos(beta), 0],
@@ -192,7 +199,7 @@ def calibrate_camera_new(img, index=0, log=False):
     # print(f"A_: {A_}")
     # print(f"B_: {B_}")
 
-    uA = get_direction_vector(A[0], A[1], 1944/2)[:3]
+    uA = get_direction_vector(A[0], A[1], 1944/2)[:3] # verctors pointing to the markers
     uB = get_direction_vector(B[0], B[1], 1944/2)[:3]
     uA_ = get_direction_vector(A_[0], A_[1], 1944/2)[:3]
     uB_ = get_direction_vector(B_[0], B_[1], 1944/2)[:3]
@@ -214,12 +221,12 @@ def calibrate_camera_new(img, index=0, log=False):
         (uA_, uA, uB_, uB)
     ][index]
 
-    O = np.array([0.164, -0.091, 0], dtype=np.float128)
+    O = np.array([0.164, -0.091, 0], dtype=np.float128) # coords of the marker in the main base
     A = np.array([0.167, 0.084, 0], dtype=np.float128)
     B = np.array([0.338, -0.093, 0], dtype=np.float128)
     C = np.array([0.338, 0.078, 0], dtype=np.float128)
 
-    Lo = []
+    Lo = [] # all the possible position of the base considering different markers to compute it
     Lo += list(get_intersect(uO, O, uA, A))
     # print(uA, A, uB, B)
     Lo += list(get_intersect(uO, O, uB, B))
@@ -233,7 +240,7 @@ def calibrate_camera_new(img, index=0, log=False):
         X = X + np.array(x, dtype=np.float128)
     X *= 1/6
 
-    if log:
+    if log: # analyseing the difference in the results
         sigma = 0
         for x in Lo:
             sigma += np.linalg.norm(np.array(x)-X)**2
