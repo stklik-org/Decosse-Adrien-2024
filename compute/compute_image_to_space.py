@@ -29,13 +29,16 @@ def compute_image_to_space(
     u1 = get_direction_vector(x1, y1, rh1)
     u2 = get_direction_vector(x2, y2, rh2)
 
-    u1 = change_basis(B1, u1)
+    u1 = change_basis(B1, u1) # direction of the point in the main base
     u2 = change_basis(B2, u2)
 
     # print(u1, u2)
 
-    P1 = B1[0:3, 3]
+    P1 = B1[0:3, 3] # coord of the camera
     P2 = B2[0:3, 3]
+
+    # we know have the line determined by the direction and a point
+    # now computing the point wich is the closest to be an intesection
 
     n = np.cross(u1[0:3], u2[0:3])
     n1 = np.cross(n, u2[0:3])
@@ -50,13 +53,13 @@ def compute_image_to_space(
     mu1 = P12.dot(n1)/q1
     mu2 = -P12.dot(n2)/q2
 
-    O1 = P1 + mu1*u1[0:3]
-    O2 = P2 + mu2*u2[0:3]
+    O1 = P1 + mu1*u1[0:3] # position of the point in the space
+    O2 = P2 + mu2*u2[0:3] # it can change according wich of the two directions is used
 
-    O = (O1 + O2)/2
+    O = (O1 + O2)/2 # the closest point to bove lines
 
     delta = np.linalg.norm(O1-O2)/2
-    if log:
+    if log: # analysing the min distance between the two lines in order to get an idea of the precision of the result
         print(f"Precision on the position: {delta*100:.2f}cm")
         # print(f"Position1: {O1}")
         # print(f"Position2: {O2}")
@@ -70,11 +73,13 @@ def get_direction_vector(x: float, y: float, rh: float) -> np.ndarray:
     :param x: x coordinate from the center of the point in pixel
     :param y: y coordinate from the center of the point in pixel
     :param rh: distance from the center of the horizon in pixel
+
+    :return: a vector expressed in the base of the camera expressing the direction in wich the point can be found
     '''
 
     r = np.sqrt(x**2 + y**2)
     if r == 0:
-        return np.array([0, 1, 0, 0])
+        return np.array([0, 1, 0, 0]) # remind: the axe of the camera is the y-axis
     
     u = np.array([
         x/r*np.sin(np.pi/2*r/rh),
@@ -89,6 +94,9 @@ def change_basis(B: np.ndarray, u: np.ndarray) -> np.ndarray:
     '''
     :param B: 4x4 matrix
     :param u: 4x1 vector
+
+    simply express the vector u in another base
+    the vector u must be expressed in the base B, and B is the coord of the base B in the base A. Then, return u expressed in the base A
     '''
     u_ = np.dot(B[0:3, 0:3], u[0:3])
     return np.array([u_[0], u_[1], u_[2], 1])
