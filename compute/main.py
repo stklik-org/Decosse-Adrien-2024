@@ -13,11 +13,13 @@ from take_picture import take_picture
 from detecte_green_square import get_center_green_cube
 from compute_image_to_space import compute_image_to_space
 
-def calibrate(log=False):
+def calibrate(log=False): # function processing the calibration of the two cameras
     """
     Calibrate the camera of the two raspberry pi
     :param log: If True, print the position matrix
     """
+
+    # set orientation
     os.system("clear")
     options = ["0", "1", "2", "3"]
     terminal_menu = TerminalMenu(options, title="Mickey's orientation:")
@@ -31,16 +33,18 @@ def calibrate(log=False):
 
     os.system("clear")
 
+    # each camera takes picture
     take_picture(raspberry_name="mickey", photo_name="photo_mickey.jpg")
     take_picture(raspberry_name="minnie", photo_name="photo_minnie.jpg")
 
     img_mickey = cv2.imread("/home/adrien/Bureau/Ned/compute/data/photos/photo_mickey.jpg", cv2.IMREAD_COLOR)
     img_minnie = cv2.imread("/home/adrien/Bureau/Ned/compute/data/photos/photo_minnie.jpg", cv2.IMREAD_COLOR)
 
+    # calibrate each calibrate with the taken photos
     B_Mickey = calibrate_camera_new(img_mickey, index=mickey_index, log=log)
     B_minnie = calibrate_camera_new(img_minnie, index=minnie_index, log=log)
 
-    return B_Mickey, B_minnie
+    return B_Mickey, B_minnie # return the found position and orientation of each camera
 
 def get_point_position(B_Mickey, B_minnie, log=False):
     """
@@ -51,12 +55,15 @@ def get_point_position(B_Mickey, B_minnie, log=False):
 
     :return: the found position in a 4D vector
     """
+
+    # take picture of the robot
     take_picture(raspberry_name="mickey", photo_name="photo_mickey.jpg")
     take_picture(raspberry_name="minnie", photo_name="photo_minnie.jpg")
 
     img_mickey = cv2.imread("/home/adrien/Bureau/Ned/compute/data/photos/photo_mickey.jpg", cv2.IMREAD_COLOR)
     img_minnie = cv2.imread("/home/adrien/Bureau/Ned/compute/data/photos/photo_minnie.jpg", cv2.IMREAD_COLOR)
 
+    # find the position of the robot on each image
     center_minnie = get_center_green_cube(img_minnie, 1944, log)
     center_mickey = get_center_green_cube(img_mickey, 1944, log)
 
@@ -67,6 +74,7 @@ def get_point_position(B_Mickey, B_minnie, log=False):
     while compute:
         error = False
         try: 
+            # compute the position of the arm given its position on each image
             position = compute_image_to_space(
                 center_minnie[0]-2592/2,
                 1944/2-center_minnie[1],
@@ -79,14 +87,14 @@ def get_point_position(B_Mickey, B_minnie, log=False):
                 log
             )
             compute = False
-        except Exception as e:
+        except Exception as e: # can fail if not detecting the robot for example
             error = True
             options = ["Yes", "No"]
             terminal_menu = TerminalMenu(options, title="e\nRedo pictures ?")
             index = terminal_menu.show()
             if index == 1:
                 return
-        if log and not error:
+        if log and not error: # visually verifying the picture and offer the possibility to redo it
             options = ["Yes", "No", "exit"]
             terminal_menu = TerminalMenu(options, title="Redo pictures ?")
             index = terminal_menu.show()
@@ -99,7 +107,7 @@ def get_point_position(B_Mickey, B_minnie, log=False):
                 return position
     return position
 
-def execute_program(file_path, B_Mickey, B_minnie, log=False):
+def execute_program(file_path, B_Mickey, B_minnie, log=False): # open the program and automatically adds the calibration
     with open(file_path, 'r') as file:
         lines = file.readlines()
         code = 'import numpy as np\n'
@@ -108,7 +116,7 @@ def execute_program(file_path, B_Mickey, B_minnie, log=False):
 
         for line in lines:
             l = [w for w in line.split(' ') if w != '']
-            if l != [] and l[0] == "#calibration":
+            if l != [] and l[0] == "#calibration": # 'calibration' means 'detection' in reality, the word is not well choosen
                 var = l[1]
                 if var[-1] in {'\n', '\r'}:
                     var = var[:-1]
@@ -117,7 +125,7 @@ def execute_program(file_path, B_Mickey, B_minnie, log=False):
                 code += ' '*n + '__has_value = False\n'
                 code += ' '*n + 'while not __has_value:\n'
                 code += ' '*(n+3) + 'try:\n'
-                code += ' '*(n+6) + '__delta_position_inserted = get_point_position('
+                code += ' '*(n+6) + '__delta_position_inserted = get_point_position(' # put the value of the position and orientation of each camera
                 code += f"np.array([[{B_Mickey[0][0]}, {B_Mickey[0][1]}, {B_Mickey[0][2]}, {B_Mickey[0][3]}],"
                 code += f"[{B_Mickey[1][0]}, {B_Mickey[1][1]}, {B_Mickey[1][2]}, {B_Mickey[1][3]}],"
                 code += f"[{B_Mickey[2][0]}, {B_Mickey[2][1]}, {B_Mickey[2][2]}, {B_Mickey[2][3]}],"
@@ -127,11 +135,11 @@ def execute_program(file_path, B_Mickey, B_minnie, log=False):
                 code += f"[{B_minnie[2][0]}, {B_minnie[2][1]}, {B_minnie[2][2]}, {B_minnie[2][3]}],"
                 code += f"[{B_minnie[3][0]}, {B_minnie[3][1]}, {B_minnie[3][2]}, {B_minnie[3][3]}]]), log=" + str(log) + ")-"
                 code += f"np.array({var}[:3]+[1])\n"
-                code += ' '*(n+6) + 'print(f"Δx={__delta_position_inserted[0]*100:.2f}cm")\n'
+                code += ' '*(n+6) + 'print(f"Δx={__delta_position_inserted[0]*100:.2f}cm")\n' # prints the found difference
                 code += ' '*(n+6) + 'print(f"Δy={__delta_position_inserted[1]*100:.2f}cm")\n'
                 code += ' '*(n+6) + 'print(f"Δz={__delta_position_inserted[2]*100:.2f}cm")\n'
                 code += ' '*(n+6) + 'print(f"||Δ||={np.linalg.norm(__delta_position_inserted)*100:.2f}cm")\n'
-                code += ' '*(n+6) + 'with open ("compute/logs/delta.log", "a") as f:\n'
+                code += ' '*(n+6) + 'with open ("compute/logs/delta.log", "a") as f:\n' # also adds it a log
                 code += ' '*(n+9) + 'f.write(f"'
                 code += '{__delta_position_inserted[0]} '
                 code += '{__delta_position_inserted[1]} '
@@ -140,7 +148,7 @@ def execute_program(file_path, B_Mickey, B_minnie, log=False):
                 code += ' '*(n+6) + '__has_value = True\n'
                 code += ' '*(n+3) + 'except Exception as e:\n'
                 code += ' '*(n+6) + 'print(e)\n'
-            elif l != [] and ("ned.move_joints" in line or "ned.move_pose" in line) and l[0] != '#':
+            elif l != [] and ("ned.move_joints" in line or "ned.move_pose" in line) and l[0] != '#': # when moving the arm, write the ask position in a log
                 l = line.split(" ")
                 n = [index for index in range(len(l)) if l[index] != ""][0]
                 code += line
@@ -160,11 +168,12 @@ def execute_program(file_path, B_Mickey, B_minnie, log=False):
                 code += '\\n")\n'
             else:
                 code += line
-        with open('program_proof.py', 'w') as f:
+        with open('program_proof.py', 'w') as f: # saves the resulting program as a proof of what has been done
             f.write(code)
         exec(code, globals(), {})
 
 def main_function(log=False):
+    # proceed to a potential calibration before modifiying and executing the given program
     os.system("clear")
     options = ["No", "Yes", "exit"]
     terminal_menu = TerminalMenu(options, title="Proceed to a calibration before executing the program ?")
